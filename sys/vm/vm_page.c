@@ -1707,6 +1707,48 @@ vm_page_lookup(vm_object_t object, vm_pindex_t pindex)
 }
 
 /*
+ *	vm_page_iter_init:
+ *
+ *	Initialize iterator for vm pages.
+ */
+void
+vm_page_iter_init(struct pctrie_iter *pages, vm_object_t object)
+{
+
+	VM_OBJECT_ASSERT_LOCKED(object);
+	vm_radix_iter_init(pages, &object->rtree);
+}
+
+/*
+ *	vm_page_iter_init:
+ *
+ *	Initialize iterator for vm pages.
+ */
+void
+vm_page_iter_limit_init(struct pctrie_iter *pages, vm_object_t object,
+    vm_pindex_t limit)
+{
+
+	VM_OBJECT_ASSERT_LOCKED(object);
+	vm_radix_iter_limit_init(pages, &object->rtree, limit);
+}
+
+/*
+ *	vm_page_iter_lookup:
+ *
+ *	Returns the page associated with the object/offset pair specified, and
+ *	stores the path to its position; if none is found, NULL is returned.
+ *
+ *	The iter pctrie must be locked.
+ */
+vm_page_t
+vm_page_iter_lookup(struct pctrie_iter *pages, vm_pindex_t pindex)
+{
+
+	return (vm_radix_iter_lookup(pages, pindex));
+}
+
+/*
  *	vm_page_lookup_unlocked:
  *
  *	Returns the page associated with the object/offset pair specified;
@@ -1788,6 +1830,22 @@ vm_page_find_least(vm_object_t object, vm_pindex_t pindex)
 	if ((m = TAILQ_FIRST(&object->memq)) != NULL && m->pindex < pindex)
 		m = vm_radix_lookup_ge(&object->rtree, pindex);
 	return (m);
+}
+
+/*
+ *	vm_page_iter_lookup_ge:
+ *
+ *	Returns the page associated with the object with least pindex
+ *	greater than or equal to the parameter pindex, or NULL.  Initializes the
+ *	iterator to point to that page.
+ *
+ *	The iter pctrie must be locked.
+ */
+vm_page_t
+vm_page_iter_lookup_ge(struct pctrie_iter *pages, vm_pindex_t pindex)
+{
+
+	return (vm_radix_iter_lookup_ge(pages, pindex));
 }
 
 /*
@@ -2352,10 +2410,6 @@ vm_page_alloc_contig_domain(vm_object_t object, vm_pindex_t pindex, int domain,
 		if (!vm_domain_alloc_fail(VM_DOMAIN(domain), object, req))
 			return (NULL);
 	}
-	for (m = m_ret; m < &m_ret[npages]; m++) {
-		vm_page_dequeue(m);
-		vm_page_alloc_check(m);
-	}
 
 	/*
 	 * Initialize the pages.  Only the PG_ZERO flag is inherited.
@@ -2376,6 +2430,8 @@ vm_page_alloc_contig_domain(vm_object_t object, vm_pindex_t pindex, int domain,
 	    memattr == VM_MEMATTR_DEFAULT)
 		memattr = object->memattr;
 	for (m = m_ret; m < &m_ret[npages]; m++) {
+		vm_page_dequeue(m);
+		vm_page_alloc_check(m);
 		m->a.flags = 0;
 		m->flags = (m->flags | PG_NODUMP) & flags;
 		m->busy_lock = busy_lock;
